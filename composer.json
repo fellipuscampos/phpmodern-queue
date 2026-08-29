@@ -1,0 +1,26 @@
+{
+    "name": "phpmodern/queue",
+    "description": "Database-backed job queue: push a job from any request, process it with a standalone worker daemon — the same 'daemon lives outside PHP-FPM' pattern as push-hub.",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "phpmodern/orm": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "PhpModern\\Queue\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "PhpModern\\Queue\\Tests\\": "tests/"
+        }
+    },
+    "bin": [
+        "bin/worker.php"
+    ]
+}
