@@ -51,11 +51,15 @@ if ($autoload === null) {
 
 require $autoload;
 
+use PhpModern\Config\Config;
+use PhpModern\Config\Env;
 use PhpModern\Orm\Connection;
 use PhpModern\Queue\DatabaseQueue;
 use PhpModern\Queue\Worker;
 
-$dsn = $argv[1] ?? (getenv('DATABASE_URL') ?: null);
+Env::load(getcwd() . '/.env');
+
+$dsn = $argv[1] ?? Config::string('DATABASE_URL');
 
 if ($dsn === null) {
     fwrite(STDERR, "Usage: worker.php <dsn>   (or set the DATABASE_URL environment variable)\n");
