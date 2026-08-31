@@ -55,17 +55,25 @@ use PhpModern\Config\Config;
 use PhpModern\Config\Env;
 use PhpModern\Orm\Connection;
 use PhpModern\Queue\DatabaseQueue;
+use PhpModern\Queue\RedisQueue;
 use PhpModern\Queue\Worker;
 
 Env::load(getcwd() . '/.env');
 
-$dsn = $argv[1] ?? Config::string('DATABASE_URL');
+$dsn = $argv[1] ?? Config::string('DATABASE_URL') ?? Config::string('QUEUE_URL');
 
 if ($dsn === null) {
-    fwrite(STDERR, "Usage: worker.php <dsn>   (or set the DATABASE_URL environment variable)\n");
+    fwrite(STDERR, "Usage: worker.php <dsn-or-redis-url>   (or set DATABASE_URL / QUEUE_URL)\n");
     exit(1);
 }
 
+// A `redis://host:port` URL selects RedisQueue; anything else is a plain
+// PDO DSN for DatabaseQueue, exactly as before this option existed.
+$redisUrl = parse_url($dsn);
+$driver = ($redisUrl !== false && ($redisUrl['scheme'] ?? '') === 'redis')
+    ? new RedisQueue($redisUrl['host'] ?? '127.0.0.1', (int) ($redisUrl['port'] ?? 6379))
+    : new DatabaseQueue(new Connection($dsn));
+
 fwrite(STDOUT, "phpmodern queue worker started against {$dsn}\n");
 
-(new Worker(new DatabaseQueue(new Connection($dsn))))->run();
+(new Worker($driver))->run();

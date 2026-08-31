@@ -9,7 +9,7 @@ use Throwable;
 
 final class Worker
 {
-    public function __construct(private readonly DatabaseQueue $queue)
+    public function __construct(private readonly QueueDriver $queue)
     {
     }
 
@@ -37,11 +37,46 @@ final class Worker
 
             $job->handle();
             $this->queue->delete($queuedJob->id);
+
+            if ($job instanceof ChainableJob) {
+                $next = $job->next();
+
+                if ($next !== null) {
+                    $this->queue->push($next[0], $next[1]);
+                }
+            }
+
+            if ($queuedJob->batchId !== null && $this->queue instanceof BatchableQueue) {
+                $this->advanceBatch($this->queue, $queuedJob->batchId);
+            }
         } catch (Throwable $exception) {
             $this->handleFailure($queuedJob, $job, $exception);
         }
 
         return true;
+    }
+
+    /**
+     * A failed batched job still counts toward the batch finishing — a
+     * batch is "every job was attempted and settled", not "every job
+     * succeeded". Pushing the "then" job is the caller's signal to check
+     * results, not a guarantee everything in the batch went well.
+     */
+    private function advanceBatch(BatchableQueue $queue, string $batchId): void
+    {
+        $progress = $queue->recordBatchCompletion($batchId);
+
+        if ($progress['completed'] < $progress['total']) {
+            return;
+        }
+
+        $then = $queue->batchThen($batchId);
+
+        if ($then !== null) {
+            $queue->push($then[0], $then[1]);
+        }
+
+        $queue->deleteBatch($batchId);
     }
 
     /**
@@ -57,6 +92,10 @@ final class Worker
 
         if ($attempts >= $maxAttempts) {
             $this->queue->markFailed($queuedJob->id, $exception->getMessage(), $attempts);
+
+            if ($queuedJob->batchId !== null && $this->queue instanceof BatchableQueue) {
+                $this->advanceBatch($this->queue, $queuedJob->batchId);
+            }
 
             return;
         }
