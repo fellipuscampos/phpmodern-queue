@@ -1,0 +1,29 @@
+[Unit]
+Description=phpmodern queue worker (processes DatabaseQueue jobs)
+Documentation=https://github.com/fellipuscampos/phpmodern-queue
+After=network.target
+
+[Service]
+Type=simple
+# Edit these two to match your deployment.
+User=www-data
+WorkingDirectory=/var/www/your-app
+
+# worker.php reads the database DSN from its first argument, or from
+# DATABASE_URL in WorkingDirectory's .env if no argument is given — either
+# works here; an explicit argument avoids depending on .env being readable
+# by the User= this unit runs as.
+ExecStart=/usr/bin/php vendor/bin/worker.php
+
+# A worker should never sit dead after an unhandled job exception takes the
+# process down — that's the entire point of running it as a supervised
+# service instead of a manually-started terminal process.
+Restart=on-failure
+RestartSec=2
+
+# journalctl -u phpmodern-queue-worker -f to tail its output.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
