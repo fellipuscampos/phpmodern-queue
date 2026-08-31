@@ -66,4 +66,61 @@ final class DatabaseQueueTest extends TestCase
         self::assertSame('failed', $row['status']);
         self::assertSame('SMTP timeout', $row['error']);
     }
+
+    public function test_mark_failed_can_also_record_the_attempts_it_took(): void
+    {
+        $connection = Connection::sqlite(':memory:');
+        $queue = new DatabaseQueue($connection);
+        $id = $queue->push('App\\Jobs\\SendWelcomeEmail');
+
+        $queue->markFailed($id, 'SMTP timeout', 3);
+
+        $statement = $connection->pdo()->prepare('SELECT attempts FROM phpmodern_jobs WHERE id = :id');
+        $statement->execute(['id' => $id]);
+
+        self::assertSame(3, (int) $statement->fetchColumn());
+    }
+
+    public function test_release_puts_a_job_back_to_pending_with_attempts_and_available_at(): void
+    {
+        $connection = Connection::sqlite(':memory:');
+        $queue = new DatabaseQueue($connection);
+        $id = $queue->push('App\\Jobs\\SendWelcomeEmail');
+        $queue->pop(); // reserve it, as Worker would before a failure
+
+        $futureTimestamp = date('Y-m-d H:i:s', time() + 60);
+        $queue->release($id, 1, $futureTimestamp);
+
+        $statement = $connection->pdo()->prepare('SELECT status, attempts, available_at FROM phpmodern_jobs WHERE id = :id');
+        $statement->execute(['id' => $id]);
+        $row = $statement->fetch();
+
+        self::assertSame('pending', $row['status']);
+        self::assertSame(1, (int) $row['attempts']);
+        self::assertSame($futureTimestamp, $row['available_at']);
+    }
+
+    public function test_a_released_job_with_a_future_available_at_is_not_popped(): void
+    {
+        $queue = new DatabaseQueue(Connection::sqlite(':memory:'));
+        $id = $queue->push('App\\Jobs\\SendWelcomeEmail');
+        $queue->pop();
+        $queue->release($id, 1, date('Y-m-d H:i:s', time() + 60));
+
+        self::assertNull($queue->pop());
+    }
+
+    public function test_a_released_job_becomes_available_once_its_time_has_passed(): void
+    {
+        $queue = new DatabaseQueue(Connection::sqlite(':memory:'));
+        $id = $queue->push('App\\Jobs\\SendWelcomeEmail');
+        $queue->pop();
+        $queue->release($id, 1, date('Y-m-d H:i:s', time() - 60));
+
+        $job = $queue->pop();
+
+        self::assertNotNull($job);
+        self::assertSame($id, $job->id);
+        self::assertSame(1, $job->attempts);
+    }
 }

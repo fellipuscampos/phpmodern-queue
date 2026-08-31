@@ -11,6 +11,7 @@ final class QueuedJob
         public readonly int $id,
         public readonly string $jobClass,
         public readonly array $payload,
+        public readonly int $attempts = 0,
     ) {
     }
 }

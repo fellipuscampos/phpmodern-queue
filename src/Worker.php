@@ -26,6 +26,8 @@ final class Worker
             return false;
         }
 
+        $job = null;
+
         try {
             $job = new $queuedJob->jobClass(...$queuedJob->payload);
 
@@ -36,10 +38,33 @@ final class Worker
             $job->handle();
             $this->queue->delete($queuedJob->id);
         } catch (Throwable $exception) {
-            $this->queue->markFailed($queuedJob->id, $exception->getMessage());
+            $this->handleFailure($queuedJob, $job, $exception);
         }
 
         return true;
+    }
+
+    /**
+     * A plain Job fails permanently on its very first exception, exactly as
+     * it always has. A RetryableJob instead gets released back to the queue
+     * with an exponential backoff delay (2, 4, 8, 16... seconds) until its
+     * own maxAttempts() is reached, at which point it fails permanently too.
+     */
+    private function handleFailure(QueuedJob $queuedJob, mixed $job, Throwable $exception): void
+    {
+        $maxAttempts = $job instanceof RetryableJob ? $job->maxAttempts() : 1;
+        $attempts = $queuedJob->attempts + 1;
+
+        if ($attempts >= $maxAttempts) {
+            $this->queue->markFailed($queuedJob->id, $exception->getMessage(), $attempts);
+
+            return;
+        }
+
+        $delaySeconds = 2 ** $attempts;
+        $availableAt = date('Y-m-d H:i:s', time() + $delaySeconds);
+
+        $this->queue->release($queuedJob->id, $attempts, $availableAt);
     }
 
     /**
